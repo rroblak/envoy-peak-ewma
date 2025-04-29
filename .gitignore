@@ -1,0 +1,16 @@
+# Build artifacts
+build_cache/
+
+# IDE and editor specific files
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Other common ignores
+*.o
+*.so
+*.dylib
+*.a
+*.exe
+*.out

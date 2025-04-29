@@ -1,0 +1,143 @@
+# --- Stage 1: Base OS and Dependencies ---
+# This stage requires network for apt-get
+ARG NS3_VERSION=3.44
+FROM ubuntu:22.04 AS ns3-deps
+
+LABEL stage="ns3-dependencies"
+
+# Set non-interactive frontend for apt commands
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install ns-3 Build Dependencies for Ubuntu
+# Ensure no non-breaking spaces are present in this RUN command
+RUN apt-get update -o Acquire::Retries=3 && \
+    apt-get install -y --no-install-recommends \
+    ca-certificates \
+    gnupg \
+    g++ \
+    python3 \
+    # python3-dev is not strictly needed if python bindings are disabled
+    cmake \
+    pkg-config \
+    build-essential \
+    libsqlite3-dev \
+    libboost-dev \
+    # python3-setuptools is less critical if --disable-python
+    git \
+    wget \
+    unzip \
+    vim \
+    bzip2 \
+    libpcap-dev \
+    lsof \
+    psmisc \
+    sudo && \
+    # Clean up apt cache ONLY after successful install and remove lists
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# --- Stage 2: User Setup ---
+# This stage does *not* require network
+FROM ns3-deps AS user-setup
+
+LABEL stage="user-setup"
+
+# Create a non-root user for ns-3 development
+ARG USERNAME=devuser
+ARG USER_UID=1000
+ARG USER_GID=${USER_UID}
+# Install sudo, configure it, then force remove it.
+# Ensure no non-breaking spaces are present in this RUN command
+RUN groupadd --gid ${USER_GID} ${USERNAME} && \
+    useradd --uid ${USER_UID} --gid ${USER_GID} -m ${USERNAME} && \
+    # Set up sudo access for the user
+    # Note: sudo might already be installed from the previous stage,
+    # apt-get install will just ensure it's there.
+    apt-get update && apt-get install -y --no-install-recommends sudo && \
+    echo "${USERNAME} ALL=(root) NOPASSWD:ALL" > /etc/sudoers.d/${USERNAME} && \
+    chmod 0440 /etc/sudoers.d/${USERNAME} && \
+    # Force remove sudo after configuration, bypassing the safety check
+    export SUDO_FORCE_REMOVE=yes && \
+    apt-get purge --auto-remove -y sudo && \
+    unset SUDO_FORCE_REMOVE && \
+    # Clean up apt lists after operations in this stage
+    rm -rf /var/lib/apt/lists/*
+
+
+# --- Stage 3: Download ns-3 ---
+# This stage requires network for wget, but only needs to run once if cached
+FROM user-setup AS ns3-download
+
+LABEL stage="ns3-download"
+
+ARG NS3_VERSION
+ARG USERNAME=devuser
+
+WORKDIR /usr/src
+
+# Explicitly update CA certificates before using wget
+# Need to reinstall ca-certificates as it might have been removed by auto-remove with sudo purge
+# Also need wget installed here.
+# Ensure no non-breaking spaces are present in this RUN command
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && \
+    update-ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Download ns-3 securely
+# Ensure no non-breaking spaces are present in this RUN command
+RUN wget https://www.nsnam.org/releases/ns-allinone-${NS3_VERSION}.tar.bz2 && \
+    tar xjf ns-allinone-${NS3_VERSION}.tar.bz2 && \
+    rm ns-allinone-${NS3_VERSION}.tar.bz2 && \
+    mv ns-allinone-${NS3_VERSION} ns-allinone && \
+    # Ensure ownership is correct after download
+    chown -R ${USERNAME}:${USERNAME} /usr/src/ns-allinone && \
+    # Clean up wget after use if desired
+    apt-get purge --auto-remove -y wget && \
+    rm -rf /var/lib/apt/lists/*
+
+
+# --- Stage 4: Final Development Environment Setup ---
+# This stage does *not* require network
+FROM ns3-download AS ns3-dev-final
+
+LABEL stage="final-dev-environment"
+
+ARG NS3_VERSION # Inherits value from --build-arg or global ARG
+ARG USERNAME=devuser
+
+# This second ARG NS3_VERSION declaration for the LABEL is redundant if the one above exists,
+# but harmless. Keeping it as it was in the user's provided version.
+ARG NS3_VERSION 
+
+LABEL maintainer="your-email@example.com"
+# Using the ARG in LABEL.
+LABEL description="ns-3 (${NS3_VERSION}) Development Environment (Ubuntu 22.04)"
+
+# Switch to the non-root user (inherited from user-setup via ns3-download)
+USER ${USERNAME}
+
+# Define the ns-3 source directory environment variable
+ENV NS3_DIR=/usr/src/ns-allinone/ns-${NS3_VERSION}
+# Set an environment variable for NS3_VERSION to be used reliably in the alias
+ENV NS3_VERSION_ENV=${NS3_VERSION}
+
+# Add ns-3 directory to PATH for ns3 script
+ENV PATH=${NS3_DIR}:${PATH}
+
+# Set the working directory to the ns-3 source directory
+WORKDIR ${NS3_DIR}
+
+# Add convenience aliases for ns-3 commands for the user
+# This runs as the devuser user
+# Ensure no non-breaking spaces are present in this RUN command
+RUN echo "" >> ~/.bashrc && \
+    echo '# ns-3 development aliases' >> ~/.bashrc && \
+    echo 'alias ns3-conf="./ns3 configure --build-profile=debug --disable-python --enable-examples --out=./build"' >> ~/.bashrc && \
+    echo 'alias ns3-bld="./ns3 build"' >> ~/.bashrc && \
+    echo 'alias ns3-shell="./ns3 shell"' >> ~/.bashrc && \
+    echo 'alias ns3-run-sim="./build/src/load-balancer-simulation/examples/ns${NS3_VERSION_ENV}-main-debug"' >> ~/.bashrc && \
+    echo 'PS1="\[\033[01;32m\]ns3-dev\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ "' >> ~/.bashrc
+
+# --- Set Default Command ---
+# Start an interactive bash shell when the container runs.
+CMD ["bash"]

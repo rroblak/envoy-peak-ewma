@@ -1,0 +1,37 @@
+build_lib(
+    LIBNAME load-balancer-simulation
+    SOURCE_FILES
+        utils.cc
+        topology.cc
+        load_balancer.cc
+        round_robin_load_balancer.cc
+        least_request_load_balancer.cc
+        random_load_balancer.cc
+        ring_hash_load_balancer.cc
+        maglev_load_balancer.cc
+        peak_ewma_load_balancer.cc
+        request_response_header.cc
+        latency_client_app.cc
+        latency_server_app.cc
+    HEADER_FILES
+        utils.h
+        topology.h
+        load_balancer.h
+        round_robin_load_balancer.h
+        least_request_load_balancer.h
+        random_load_balancer.h
+        ring_hash_load_balancer.h
+        maglev_load_balancer.h
+        peak_ewma_load_balancer.h
+        request_response_header.h
+        latency_client_app.h
+        latency_server_app.h
+    LIBRARIES_TO_LINK # Dependencies on other ns-3 modules
+        core
+        network
+        internet
+        applications
+        csma
+        stats
+        internet-apps
+)

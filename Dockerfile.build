@@ -1,0 +1,38 @@
+# Production build Dockerfile for the ns-3 simulation
+ARG NS3_VERSION=3.44
+ARG DEV_IMAGE_TAG=latest
+ARG DEV_IMAGE_NAME=ns3-load-balancer-dev # Should match what you use in Makefile
+
+# Use the development image as the base
+FROM ${DEV_IMAGE_NAME}:${DEV_IMAGE_TAG} AS builder
+
+# Arguments and Environment variables (already set in base, but can be overridden if needed)
+ARG NS3_VERSION
+ENV NS3_DIR=/usr/src/ns-allinone/ns-${NS3_VERSION}
+WORKDIR ${NS3_DIR}
+
+# Assuming ARG USERNAME=devuser is available or inherited from the base stage
+# If not, you might need to pass it or hardcode devuser:devuser
+# Best practice would be to ensure USERNAME arg is available in this build stage.
+# For simplicity, if devuser is consistently UID 1000:
+COPY --chown=1000:1000 ./load-balancer-simulation ./src/load-balancer-simulation
+
+# --- Build ns-3 with the Custom Module ---
+# Configure ns-3 using the CMake build system via the ns3 wrapper
+# Build profile debug to enable logging and asserts as per your original file
+# Adding --enable-examples for explicitness, matching the dev alias.
+# If base image was root, then 'RUN sudo -u vscode ./ns3 configure ...' would be needed.
+RUN ./ns3 configure --build-profile=debug --disable-python --enable-examples --out=./build
+
+# Build ns-3 and the custom module
+RUN ./ns3 build
+
+# --- Prepare Runtime Environment ---
+# For the final image, we can create a new minimal stage or just use the current one.
+# Using the current one is simpler for now.
+WORKDIR ${NS3_DIR}
+
+# --- Define Default Run Command ---
+# Use ENTRYPOINT for the executable and CMD for default arguments.
+ENTRYPOINT ["./build/src/load-balancer-simulation/examples/ns3.44-main-debug"]
+CMD ["--numClients=10", "--numServers=10", "--simTime=15.0", "--serverDelays=5,5,5,5,5,5,5,5,5,50", "--lbAlgorithm=PeakEWMA"]
